@@ -276,7 +276,9 @@ public class ApplicationLoader extends Application {
         NekoConfig.init();
         NaConfig.init();
         SharedPrefsHelper.init(applicationContext);
-        FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(AndroidUtil.shouldEnableCrashlytics());
+        if (!BuildConfig.APPLICATION_ID.equals("fork.risin42.nagramx.dialogtrace")) {
+            FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(AndroidUtil.shouldEnableCrashlytics());
+        }
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) { //TODO improve account
             UserConfig.getInstance(a).loadConfig();
             MessagesController.getInstance(a);
