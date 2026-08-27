@@ -1,3 +1,4 @@
+# Debug APK is intentionally signed with the standard Android debug key.
 name: Pull request
 
 on:
