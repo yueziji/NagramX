@@ -12705,6 +12705,8 @@ public class MessagesController extends BaseController implements NotificationCe
         getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("folderId = " + folderId + " load cacheOffset = " + offset + " count = " + count + " cache = " + fromCache);
+            int actualCacheOffset = offset == 0 ? 0 : nextDialogsCacheOffset.get(folderId, 0);
+            FileLog.d("[DialogListTrace] pageRequest folder=" + folderId + " source=" + (fromCache ? "cache" : "server") + " requestedOffset=" + offset + " actualCacheOffset=" + actualCacheOffset + " count=" + count);
         }
         if (fromCache) {
             getMessagesStorage().getDialogs(folderId, offset == 0 ? 0 : nextDialogsCacheOffset.get(folderId, 0), count, folderId == 0 && offset == 0);
@@ -12785,6 +12787,9 @@ public class MessagesController extends BaseController implements NotificationCe
             getConnectionsManager().sendRequest(req, (response, error) -> {
                 if (error == null) {
                     TLRPC.messages_Dialogs dialogsRes = (TLRPC.messages_Dialogs) response;
+                    if (BuildVars.LOGS_ENABLED) {
+                        FileLog.d("[DialogListTrace] pageResponse folder=" + folderId + " source=server dialogs=" + dialogsRes.dialogs.size() + " messages=" + dialogsRes.messages.size() + " requestedCount=" + count);
+                    }
                     processLoadedDialogs(dialogsRes, null, null, folderId, 0, count, 0, false, false, false);
                     if (onEmptyCallback != null && dialogsRes.dialogs.isEmpty()) {
                         AndroidUtilities.runOnUIThread(onEmptyCallback);
@@ -13544,6 +13549,7 @@ public class MessagesController extends BaseController implements NotificationCe
 
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d("loaded folderId " + folderId + " loadType " + loadType + " count " + dialogsRes.dialogs.size());
+                FileLog.d("[DialogListTrace] pageReceived folder=" + folderId + " source=" + (fromCache ? "cache" : "server") + " loadType=" + loadType + " dialogs=" + dialogsRes.dialogs.size() + " messages=" + dialogsRes.messages.size() + " offset=" + offset + " count=" + count);
             }
             long[] dialogsLoadOffset = getUserConfig().getDialogLoadOffsets(folderId);
             if (loadType == DIALOGS_LOAD_TYPE_CACHE && dialogsRes.dialogs.size() == 0) {
@@ -13796,10 +13802,14 @@ public class MessagesController extends BaseController implements NotificationCe
 
             TLRPC.Message lastMessageFinal = lastMessage;
             AndroidUtilities.runOnUIThread(() -> {
+                int dialogsLoadedTillDateBefore = dialogsLoadedTillDate;
                 if (lastMessageFinal != null) {
                     dialogsLoadedTillDate = Math.min(dialogsLoadedTillDate, lastMessageFinal.date);
                 } else {
                     dialogsLoadedTillDate = Integer.MIN_VALUE;
+                }
+                if (BuildVars.LOGS_ENABLED) {
+                    FileLog.d("[DialogListTrace] boundary folder=" + folderId + " source=" + (fromCache ? "cache" : "server") + " before=" + dialogsLoadedTillDateBefore + " after=" + dialogsLoadedTillDate + " oldestMessageId=" + (lastMessageFinal == null ? 0 : lastMessageFinal.id) + " oldestMessageDate=" + (lastMessageFinal == null ? 0 : lastMessageFinal.date));
                 }
                 if (loadType != DIALOGS_LOAD_TYPE_CACHE) {
                     applyDialogsNotificationsSettings(dialogsRes.dialogs);
@@ -22711,6 +22721,10 @@ public class MessagesController extends BaseController implements NotificationCe
                 isLeftPromoChannel = false;
             }
         }
+        int dialogsHiddenByDateBoundary = 0;
+        int oldestHiddenDialogMessageDate = Integer.MAX_VALUE;
+        int newestHiddenDialogMessageDate = Integer.MIN_VALUE;
+        StringBuilder hiddenDialogsSample = new StringBuilder();
         for (int a = 0, N = allDialogs.size(); a < N; a++) {
             TLRPC.Dialog d = allDialogs.get(a);
             if (d instanceof TLRPC.TL_dialog) {
@@ -22725,6 +22739,17 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
                     if (maxDate > Integer.MIN_VALUE) {
                         if (maxDate < dialogsLoadedTillDate) {
+                            dialogsHiddenByDateBoundary++;
+                            oldestHiddenDialogMessageDate = Math.min(oldestHiddenDialogMessageDate, maxDate);
+                            newestHiddenDialogMessageDate = Math.max(newestHiddenDialogMessageDate, maxDate);
+                            if (hiddenDialogsSample.length() < 1200) {
+                                if (hiddenDialogsSample.length() > 0) {
+                                    hiddenDialogsSample.append(", ");
+                                }
+                                hiddenDialogsSample.append("id=").append(d.id)
+                                        .append(" msgDate=").append(maxDate)
+                                        .append(" dialogDate=").append(d.last_message_date);
+                            }
                             continue;
                         }
                     }
@@ -22842,6 +22867,9 @@ public class MessagesController extends BaseController implements NotificationCe
             }
         }
 
+        if (BuildVars.LOGS_ENABLED && dialogsHiddenByDateBoundary > 0) {
+            FileLog.d("[DialogListTrace] sort hiddenByDateBoundary=" + dialogsHiddenByDateBoundary + " boundary=" + dialogsLoadedTillDate + " hiddenMessageDateRange=" + oldestHiddenDialogMessageDate + ".." + newestHiddenDialogMessageDate + " samples=[" + hiddenDialogsSample + "]");
+        }
         hasArchivedChats = dialogsByFolder.get(1, null) != null;
     }
 
